@@ -1,6 +1,7 @@
 import { normalizeString } from "./NormalizeString.js";
 import mongoose from "mongoose";
 
+
 const escapeRegex = string => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 };
