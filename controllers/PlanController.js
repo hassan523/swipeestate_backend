@@ -63,165 +63,228 @@ import SearchQuery from "../utils/SearchQuery.js";
 // };
 
 const createProductAndPrice = async (req, res, next) => {
-  try {
-    const { title, amount, description, planPoints, interval } = req.body;
+   try {
+      const { title, amount, description, planPoints, interval, planRestrictions, appleProductId = "", type = "user" } = req.body;
 
-    // Validate input
-    if (!title || amount === undefined || amount === null) {
-      return res
-        .status(400)
-        .json({ message: "Title and amount are required fields." });
-    }
+      // Validate input
+      if (!title || amount === undefined || amount === null) {
+         return res.status(400).json({ message: "Title and amount are required fields." });
+      }
 
-    if (!Array.isArray(planPoints)) {
-      return res.status(400).json({ message: "Plan Points Must Be An Array" });
-    }
+      if (!Array.isArray(planPoints)) {
+         return res.status(400).json({ message: "Plan Points Must Be An Array" });
+      }
 
-    let product = null;
-    let price = null;
+      if (planRestrictions !== undefined && (planRestrictions === null || typeof planRestrictions !== "object" || Array.isArray(planRestrictions))) {
+         return res.status(400).json({ message: "planRestrictions must be an object" });
+      }
 
-    // --------------------------------------------
-    //  ✅ Handle FREE PLAN (amount === 0)
-    // --------------------------------------------
-    if (amount === 0) {
-      // No Stripe product or price created
+      if (!["user", "agent"].includes(type)) {
+         return res.status(400).json({ message: "type must be user or agent" });
+      }
 
+      let product = null;
+      let price = null;
+
+      // --------------------------------------------
+      //  ✅ Handle FREE PLAN (amount === 0)
+      // --------------------------------------------
+      if (amount === 0) {
+         // No Stripe product or price created
+
+         const plan = new PlanModel({
+            title,
+            description,
+            planPoints,
+            amount: 0,
+            currency: "usd",
+            interval: null,
+            productId: null,
+            priceId: null,
+            appleProductId,
+            type,
+            planRestrictions: planRestrictions || {},
+         });
+
+         await plan.save();
+
+         return res.status(201).json({
+            message: "Free plan created successfully",
+            plan,
+         });
+      }
+
+      // --------------------------------------------
+      //  ✅ PAID PLAN (amount > 0)
+      // --------------------------------------------
+
+      if (!["month", "year"].includes(interval)) {
+         return res.status(400).json({ message: "Invalid Interval Type" });
+      }
+
+      // Convert to cents
+      const unitAmount = Math.round(amount * 100);
+
+      // Create product on Stripe
+      product = await stripe.products.create({
+         name: title,
+         description,
+      });
+
+      // Create yearly price on Stripe
+      price = await stripe.prices.create({
+         unit_amount: unitAmount,
+         currency: "usd",
+         recurring: { interval: interval },
+         product: product.id,
+      });
+
+      // Save to DB
       const plan = new PlanModel({
-        title,
-        description,
-        planPoints,
-        amount: 0,
-        currency: "usd",
-        interval: null,
-        productId: null,
-        priceId: null
+         title,
+         description,
+         planPoints,
+         productId: product.id,
+         priceId: price.id,
+         amount,
+         currency: price.currency,
+         interval: price.recurring.interval,
+         type,
+         appleProductId,
+         planRestrictions: planRestrictions || {},
       });
 
       await plan.save();
 
       return res.status(201).json({
-        message: "Free plan created successfully",
-        plan
+         message: "Paid plan created successfully",
+         plan,
       });
-    }
+   } catch (error) {
+      console.error("Stripe Error:", error);
+      next(error);
+   }
+};
 
-    // --------------------------------------------
-    //  ✅ PAID PLAN (amount > 0)
-    // --------------------------------------------
+const handleGetPlans = async (req, res, next) => {
+   try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
 
-    if (!["month", "year"].includes(interval)) {
-      return res.status(400).json({ message: "Invalid Interval Type" });
-    }
+      const search = req.query.search || {};
+      const matchStage = SearchQuery(search);
 
-    // Convert to cents
-    const unitAmount = Math.round(amount * 100);
+      const conditions = matchStage?.$match || {};
 
-    // Create product on Stripe
-    product = await stripe.products.create({
-      name: title,
-      description
-    });
+      const { interval, ...freePlanConditions } = conditions;
 
-    // Create yearly price on Stripe
-    price = await stripe.prices.create({
-      unit_amount: unitAmount,
-      currency: "usd",
-      recurring: { interval: interval },
-      product: product.id
-    });
+      // Apply search filters to all plans, including free plans
+      const matchConditions = {
+         $or: [
+            {
+               ...conditions,
+               active: true,
+            },
+            {
+               ...freePlanConditions,
+               amount: 0,
+            },
+         ],
+      };
 
-    // Save to DB
-    const plan = new PlanModel({
-      title,
-      description,
-      planPoints,
-      productId: product.id,
-      priceId: price.id,
-      amount,
-      currency: price.currency,
-      interval: price.recurring.interval
-    });
+      const pipeline = [{ $match: matchConditions }, { $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }];
 
-    await plan.save();
+      const plans = await PlanModel.aggregate(pipeline);
 
-    return res.status(201).json({
-      message: "Paid plan created successfully",
-      plan
-    });
-  } catch (error) {
-    console.error("Stripe Error:", error);
-    next(error);
-  }
+      const countResult = await PlanModel.aggregate([{ $match: matchConditions }, { $count: "totalItems" }]);
+
+      const totalItems = countResult[0]?.totalItems || 0;
+      const totalPages = Math.ceil(totalItems / limit);
+
+      res.status(200).json({
+         plans,
+         meta: {
+            totalItems,
+            totalPages,
+            page,
+            limit,
+         },
+      });
+   } catch (error) {
+      console.log(error);
+      next(error);
+   }
 };
 
 // GET PLANS
 // METHOD: GET
 // ENDPOINT:  /api/plans/get-plans
-const handleGetPlans = async (req, res, next) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
 
-    const search = req.query.search || {};
-    const matchStage = SearchQuery(search); // your existing search function
+// const handleGetPlans = async (req, res, next) => {
+//   try {
+//     const page = parseInt(req.query.page) || 1;
+//     const limit = parseInt(req.query.limit) || 10;
+//     const skip = (page - 1) * limit;
 
-    const pipeline = [];
+//     const search = req.query.search || {};
+//     const matchStage = SearchQuery(search); // your existing search function
 
-    // Build the match stage
-    let matchConditions = { active: true }; // only active plans by default
+//     const pipeline = [];
 
-    if (matchStage) {
-      const conditions = matchStage.$match || {};
-      // include search conditions + always active plans + free plan (amount: 0)
-      matchConditions = {
-        ...conditions,
-        active: true,
-      };
-    }
+//     // Build the match stage
+//     let matchConditions = { active: true }; // only active plans by default
 
-    // Add the match stage
-    pipeline.push({
-      $match: {
-        $or: [matchConditions, { amount: 0 }]
-      }
-    });
+//     if (matchStage) {
+//       const conditions = matchStage.$match || {};
+//       // include search conditions + always active plans + free plan (amount: 0)
+//       matchConditions = {
+//         ...conditions,
+//         active: true,
+//       };
+//     }
 
-    // Sorting, skipping, limiting
-    pipeline.push({ $sort: { createdAt: -1 } });
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limit });
+//     // Add the match stage
+//     pipeline.push({
+//       $match: {
+//         $or: [matchConditions, { amount: 0 }]
+//       }
+//     });
 
-    // Run aggregation
-    const plans = await PlanModel.aggregate(pipeline);
+//     // Sorting, skipping, limiting
+//     pipeline.push({ $sort: { createdAt: -1 } });
+//     pipeline.push({ $skip: skip });
+//     pipeline.push({ $limit: limit });
 
-    // Count total items
-    const countPipeline = [];
-    if (matchStage) {
-      countPipeline.push({ $match: matchConditions });
-    } else {
-      countPipeline.push({ $match: { active: true } });
-    }
-    countPipeline.push({ $count: "totalItems" });
+//     // Run aggregation
+//     const plans = await PlanModel.aggregate(pipeline);
 
-    const countResult = await PlanModel.aggregate(countPipeline);
-    const totalItems = countResult.length > 0 ? countResult[0].totalItems : 0;
-    const totalPages = Math.ceil(totalItems / limit);
+//     // Count total items
+//     const countPipeline = [];
+//     if (matchStage) {
+//       countPipeline.push({ $match: matchConditions });
+//     } else {
+//       countPipeline.push({ $match: { active: true } });
+//     }
+//     countPipeline.push({ $count: "totalItems" });
 
-    res.status(200).json({
-      plans,
-      meta: {
-        totalItems,
-        totalPages,
-        page,
-        limit
-      }
-    });
-  } catch (error) {
-    console.log(error);
-    next(error);
-  }
-};
+//     const countResult = await PlanModel.aggregate(countPipeline);
+//     const totalItems = countResult.length > 0 ? countResult[0].totalItems : 0;
+//     const totalPages = Math.ceil(totalItems / limit);
 
+//     res.status(200).json({
+//       plans,
+//       meta: {
+//         totalItems,
+//         totalPages,
+//         page,
+//         limit
+//       }
+//     });
+//   } catch (error) {
+//     console.log(error);
+//     next(error);
+//   }
+// };
 
 export { createProductAndPrice, handleGetPlans };

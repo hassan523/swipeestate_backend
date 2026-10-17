@@ -10,6 +10,10 @@
 
 fire-base.json
 
+# Apple In-App Purchase private keys (never commit)
+*.p8
+AuthKey_*.p8
+
 # testing
 /coverage
 

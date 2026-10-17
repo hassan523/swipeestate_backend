@@ -5,6 +5,7 @@ import validate from "../middlewares/ValidationHandler.js";
 import AuthMiddleware from "../middlewares/AuthMiddleware.js";
 import AccessMiddleware from "../middlewares/AccessMiddleware.js";
 import { handleCreateSubscription, handleDowngradeSubscription, handleGetCurrentPlanId, HandleGetPaymentIntent, handleUpgradeSubscription } from "../controllers/SubscriptionController.js";
+import { verifyAppleSubscription } from "../controllers/appleSubscription.controller.js";
 
 const router = express.Router();
 
@@ -17,5 +18,7 @@ router.post("/upgrade-subscription/:userId", handleUpgradeSubscription);
 router.get("/get-subscribed-plan/:userId", handleGetCurrentPlanId);
 
 router.post("/get-intent", HandleGetPaymentIntent);
+
+router.post("/apple/verify", verifyAppleSubscription);
 
 export default router;

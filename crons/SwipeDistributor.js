@@ -1,51 +1,94 @@
 import cron from "node-cron";
 import SubscriptionModel from "../models/SubscriptionSchema.js";
 import PlanModel from "../models/PlanScheme.js";
+import BuyerModel from "../models/BuyerSchema.js";
+import SellerModel from "../models/SellerSchema.js";
 
 const SWIPE_INCREMENT = {
-    FREE: 10,
-    BRONZE: 20,
-    SILVER: 30,
-    PLATINUM: 50,
+   FREE: 10,
+   BRONZE: 20,
+   SILVER: 30,
+   PLATINUM: 9999,
+};
+
+const CONTACT_INCREMENT = {
+   FREE: 4,
+   BRONZE: 20,
+   SILVER: 70,
+   PLATINUM: 9999,
 };
 
 export const SwipeDistributor = () => {
-    // Runs every day at 12:00 AM
-    cron.schedule("0 0 * * *", async () => {
-        try {
-            console.log("🔄 Running daily swipe increment cron...");
+   // Runs every 10 seconds for testing
+   // For daily midnight execution: "0 0 * * *"
 
-            const subscriptions = await SubscriptionModel.find({
-                status: "active",
+   cron.schedule("0 0 * * *", async () => {
+      try {
+         console.log("Running swipe increment cron...");
+
+         const subscriptions = await SubscriptionModel.find({
+            status: "active",
+         });
+
+         const bulkOps = [];
+
+         for (const sub of subscriptions) {
+            const findPlan = await PlanModel.findById(sub.planId);
+
+            if (!findPlan) continue;
+
+            const planType = findPlan.title?.toUpperCase();
+            const type = findPlan.type;
+
+            const increment = SWIPE_INCREMENT[planType];
+            const contactIncrement = CONTACT_INCREMENT[planType];
+
+            if (increment === undefined || contactIncrement === undefined) {
+               continue;
+            }
+
+            const restrictions = sub.planRestrictions || {};
+
+            const uploadOrSwipeKey = type === "agent" ? "numberOfUpload" : "numberOfSwipes";
+
+            const contactKey = type === "agent" ? "numberOfAcceptMatch" : "maxContactShow";
+
+            const updateFields = {};
+
+            // Increment only when the current value is 0
+            if (restrictions[uploadOrSwipeKey] === 0) {
+               updateFields[`planRestrictions.${uploadOrSwipeKey}`] = increment;
+            }
+
+            if (restrictions[contactKey] === 0) {
+               updateFields[`planRestrictions.${contactKey}`] = contactIncrement;
+            }
+
+            // Skip if neither field needs an update
+            if (Object.keys(updateFields).length === 0) {
+               continue;
+            }
+
+            bulkOps.push({
+               updateOne: {
+                  filter: {
+                     _id: sub._id,
+                     status: "active",
+                  },
+                  update: {
+                     $set: updateFields,
+                  },
+               },
             });
-            console.log(subscriptions)
-            const bulkOps = [];
+         }
 
-            for (const sub of subscriptions) {
-                const findPlan = await PlanModel.findById(sub.planId);
-                const planType = findPlan?.title?.toUpperCase();
-                const increment = SWIPE_INCREMENT[planType];
-                if (!increment) continue;
+         if (bulkOps.length > 0) {
+            await SubscriptionModel.bulkWrite(bulkOps);
+         }
 
-                bulkOps.push({
-                    updateOne: {
-                        filter: { _id: sub._id },
-                        update: {
-                            $inc: {
-                                "planRestrictions.numberOfSwipes": increment,
-                            },
-                        },
-                    },
-                });
-            }
-
-            if (bulkOps.length) {
-                await SubscriptionModel.bulkWrite(bulkOps);
-            }
-
-            console.log(`✅ Swipe increment completed for ${bulkOps.length} subscriptions`);
-        } catch (error) {
-            console.error("❌ Swipe cron failed:", error);
-        }
-    });
+         console.log(`Swipe distribution completed. Updated ${bulkOps.length} subscriptions.`);
+      } catch (error) {
+         console.error("Swipe cron failed:", error);
+      }
+   });
 };

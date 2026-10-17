@@ -1,5 +1,5 @@
 import express from "express";
-import { handleAcceptMatch, handleGetMatches, handleRejectBySellerMatch, handleRejectMatch, handleReqMatch } from "../controllers/MatchController.js";
+import { handleAcceptMatch, handleGetMatches, handleGetSingleMatch, handleRejectBySellerMatch, handleRejectMatch, handleReqMatch, handleShowContactDetail } from "../controllers/MatchController.js";
 
 const router = express.Router();
 
@@ -12,5 +12,9 @@ router.patch("/:userId/accept-matches/:matchId", handleAcceptMatch);
 router.patch("/:userId/reject-matches/:propertyId", handleRejectMatch);
 
 router.patch("/:userId/reject-by-seller-matches/:matchId", handleRejectBySellerMatch);
+
+router.patch("/:userId/unlock-contact/:matchId", handleShowContactDetail);
+
+router.get("/:userId/unlock-contact/:matchId", handleGetSingleMatch);
 
 export default router;

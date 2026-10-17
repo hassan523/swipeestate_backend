@@ -6,6 +6,7 @@ import MatchModel from "../models/MatchSchema.js";
 import SellerModel from "../models/SellerSchema.js";
 import SearchQuery from "../utils/SearchQuery.js";
 import { v2 as cloudinary } from "cloudinary";
+import SubscriptionModel from "../models/SubscriptionSchema.js";
 
 export const handleAddApartment = async (req, res, next) => {
    try {
@@ -16,7 +17,7 @@ export const handleAddApartment = async (req, res, next) => {
       const image = req?.files?.image;
       const featuredImages = req?.files?.featuredImages;
       const proof_of_ownership = req?.files?.proof_of_ownership;
-      console.log(featuredImages);
+
       if (!image) {
          return res.status(404).json({ message: "image is required" });
       }
@@ -71,6 +72,19 @@ export const handleAddApartment = async (req, res, next) => {
       const findSeller = await SellerModel.findById(sellerId);
       if (!findSeller) {
          return res.status(404).json({ message: "Seller Not Found" });
+      }
+
+      const updatedSubscription = await SubscriptionModel.findOneAndUpdate(
+         {
+            userId: sellerId,
+            "planRestrictions.numberOfUpload": { $gt: 0 },
+         },
+         { $inc: { "planRestrictions.numberOfUpload": -1 } },
+         { new: true },
+      );
+
+      if (!updatedSubscription) {
+         return res.status(403).json({ message: "You have reached your property upload limit. Please upgrade your subscription to upload more properties." });
       }
 
       const createListing = new ApartmentModel({

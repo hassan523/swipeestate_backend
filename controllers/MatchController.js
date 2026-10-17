@@ -164,16 +164,16 @@ export const handleAcceptMatch = async (req, res, next) => {
          return res.status(404).json({ message: "Match not found" });
       }
 
-      // 3️⃣ Atomically decrement buyer's maxMatchPacks
+      // 3️⃣ Atomically decrement buyer's numberOfAcceptMatch
       const updatedSubscription = await SubscriptionModel.findOneAndUpdate(
          {
-            userId: findMatch.matchLikedBy.buyerId,
-            "planRestrictions.maxMatchPacks": { $gt: 0 },
+            userId: userId,
+            "planRestrictions.numberOfAcceptMatch": { $gt: 0 },
          },
-         { $inc: { "planRestrictions.maxMatchPacks": -1 } },
+         { $inc: { "planRestrictions.numberOfAcceptMatch": -1 } },
          { new: true },
       );
-
+      console.log(updatedSubscription);
       if (!updatedSubscription) {
          return res.status(400).json({ message: "This user doesn't have enough matches" });
       }
@@ -293,6 +293,115 @@ export const handleRejectBySellerMatch = async (req, res, next) => {
       await findMatch.save();
 
       res.status(200).json({ message: "Property rejected successfully" });
+   } catch (error) {
+      console.error(error);
+      next(error);
+   }
+};
+
+export const handleShowContactDetail = async (req, res, next) => {
+   try {
+      const { userId, matchId } = req.params;
+
+      // 1️⃣ Check if seller exists
+      const findBuyer = await BuyerModel.findById(userId);
+      if (!findBuyer) {
+         return res.status(400).json({ message: "Buyer not found" });
+      }
+
+      // 2️⃣ Find the match
+      const findMatch = await MatchModel.findById(matchId);
+      if (!findMatch) {
+         return res.status(404).json({ message: "Match not found" });
+      }
+
+      const updatedSubscription = await SubscriptionModel.findOneAndUpdate(
+         {
+            userId: userId,
+            "planRestrictions.maxContactShow": { $gt: 0 },
+         },
+         { $inc: { "planRestrictions.maxContactShow": -1 } },
+         { new: true },
+      );
+
+      if (!updatedSubscription) {
+         return res.status(403).json({
+            message: "You have reached your contact viewing limit. Please upgrade your subscription to view more contacts.",
+         });
+      }
+
+      // 4️⃣ Update match to accepted
+      findMatch.showContact = true;
+
+      await findMatch.save();
+
+      res.status(200).json({ message: "Contact Info Unlocked successfully" });
+   } catch (error) {
+      console.error(error);
+      next(error);
+   }
+};
+
+export const handleGetSingleMatch = async (req, res, next) => {
+   try {
+      const { userId, matchId } = req.params;
+
+      // 1️⃣ Check if seller exists
+      const findBuyer = await BuyerModel.findById(userId);
+      if (!findBuyer) {
+         return res.status(400).json({ message: "Buyer not found" });
+      }
+
+      // 2️⃣ Find the match
+      const findMatch = await MatchModel.findById(matchId);
+      if (!findMatch) {
+         return res.status(404).json({ message: "Match not found" });
+      }
+
+      const pipeline = [
+         {
+            $match: {
+               _id: new mongoose.Types.ObjectId(matchId),
+               "matchLikedBy.buyerId": new mongoose.Types.ObjectId(userId),
+            },
+         },
+         {
+            $lookup: {
+               from: "sellers",
+               localField: "matchAcceptedBy.sellerId",
+               foreignField: "_id",
+               as: "seller",
+            },
+         },
+         {
+            $unwind: {
+               path: "$seller",
+               preserveNullAndEmptyArrays: true,
+            },
+         },
+         {
+            $lookup: {
+               from: "appartments",
+               localField: "propertyId",
+               foreignField: "_id",
+               as: "property",
+            },
+         },
+         {
+            $unwind: {
+               path: "$property",
+               preserveNullAndEmptyArrays: true,
+            },
+         },
+      ];
+
+      const result = await MatchModel.aggregate(pipeline);
+
+      if (!result.length) {
+         return res.status(404).json({ message: "Match Not Found" });
+      }
+
+      res.status(200).json({ match: result[0] });
    } catch (error) {
       console.error(error);
       next(error);
