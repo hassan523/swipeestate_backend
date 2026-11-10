@@ -113,7 +113,6 @@ export const handleCreateSubscription = async (req, res) => {
    try {
       const { userId, planId, priceId, email, paymentMethodId, token } = req.body;
 
-      console.log(paymentMethodId, "paymentMethodId");
       if (!userId || !planId || !email) {
          return res.status(400).json({ message: "Missing required fields" });
       }
