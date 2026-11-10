@@ -7,7 +7,7 @@
  *   APPLE_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   (App Store Connect > Users and Access > Integrations > In-App Purchase)
  *   APPLE_KEY_ID=XXXXXXXXXX
  *   APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"   (.p8 file ka content, newlines as \n)
- *   APPLE_BUNDLE_ID=com.swipeestate.user          (apni app ka bundle id)
+ *   APPLE_BUNDLE_ID=<Xcode wala Bundle Identifier>
  *   APPLE_APP_ID=1234567890                       (App Store Connect > App Information > Apple ID; production ke liye zaroori)
  *
  * Apple Root certificates (download from https://www.apple.com/certificateauthority/):
@@ -15,7 +15,6 @@
  *   Inhein backend ke root mein  certs/apple/  folder mein rakho.
  *
  * NOTE: ES Modules mein relative imports ke end par .js likhna zaroori hai.
- *       Neeche model paths aur default/named export apne project ke hisaab se adjust karna.
  */
 
 import fs from "fs";
@@ -38,7 +37,6 @@ const BUNDLE_ID = process.env.APPLE_BUNDLE_ID;
 const APP_APPLE_ID = Number(process.env.APPLE_APP_ID);
 
 // ====== ADJUST: certs folder ka path. Ye file controllers/ mein hai to '../certs/apple' ======
-// Agar file kisi deeper module folder mein hai (jaise src/modules/subscription/), to '../' barha lo.
 const CERTS_DIR = path.join(__dirname, "../certs/apple");
 // ==========================================================================================
 
@@ -123,19 +121,19 @@ export const verifyAppleSubscription = async (req, res) => {
       if (!planId || !transactionId) {
          return res.status(400).json({
             success: false,
-            message: "planId aur transactionId required hain",
+            message: "planId and transactionId are required.",
          });
       }
 
       const plan = await PlanModel.findById(planId);
       if (!plan) {
-         return res.status(404).json({ success: false, message: "Plan nahi mila" });
+         return res.status(404).json({ success: false, message: "Plan not found" });
       }
 
       if (!plan.appleProductId) {
          return res.status(400).json({
             success: false,
-            message: "Is plan ka Apple product ID set nahi hai",
+            message: "This plan is not registered in Apple account",
          });
       }
 
@@ -146,7 +144,7 @@ export const verifyAppleSubscription = async (req, res) => {
       if (transaction.productId !== plan.appleProductId) {
          return res.status(400).json({
             success: false,
-            message: "Product ID plan se match nahi karta",
+            message: "Product ID plan is not correct",
          });
       }
 
@@ -154,7 +152,7 @@ export const verifyAppleSubscription = async (req, res) => {
       if (transaction.revocationDate) {
          return res.status(400).json({
             success: false,
-            message: "Ye purchase revoke ho chuki hai",
+            message: "This purchase is revoked",
          });
       }
 
@@ -164,7 +162,7 @@ export const verifyAppleSubscription = async (req, res) => {
       if (!expiresAt || expiresAt.getTime() <= Date.now()) {
          return res.status(400).json({
             success: false,
-            message: "Subscription expire ho chuki hai",
+            message: "Subscription expired",
          });
       }
 
@@ -180,14 +178,15 @@ export const verifyAppleSubscription = async (req, res) => {
       if (usedByOther) {
          return res.status(409).json({
             success: false,
-            message: "Ye Apple subscription kisi aur account se linked hai",
+            message: "This Apple subscription is linked to another account",
          });
       }
 
       // 6) Subscription create/update (same user ke liye renew/upgrade bhi handle)
       const startDate = transaction.purchaseDate ? new Date(transaction.purchaseDate) : new Date();
 
-      const subscription = await Subscription.findOneAndUpdate(
+      // FIX: pehle yahan `Subscription` likha tha jo define nahi tha, ab SubscriptionModel
+      const subscription = await SubscriptionModel.findOneAndUpdate(
          { userId },
          {
             userId,
@@ -207,13 +206,9 @@ export const verifyAppleSubscription = async (req, res) => {
          { new: true, upsert: true, setDefaultsOnInsert: true },
       );
 
-      // ====== ADJUST: user.subscribedPlan wohi set karo jo tumhara Stripe flow karta hai ======
-      await UserModel.findByIdAndUpdate(userId, { subscribedPlan: plan._id });
-      // =========================================================================================
-
       return res.status(200).json({
          success: true,
-         message: "Subscription activate ho gayi",
+         message: "Subscription activate successfully",
          environment,
          subscription,
       });
@@ -222,7 +217,7 @@ export const verifyAppleSubscription = async (req, res) => {
 
       return res.status(500).json({
          success: false,
-         message: "Apple purchase verify nahi ho saki",
+         message: "Apple purchase verify failed",
       });
    }
 };

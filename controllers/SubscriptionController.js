@@ -127,12 +127,31 @@ export const handleCreateSubscription = async (req, res) => {
          return res.status(404).json({ message: "Plan not found" });
       }
 
-      console.log(findPlan);
-
       // ============================================
-      //         🆓 FREE PLAN HANDLING
+      //         🆓 FREE PLAN HANDLING (1 month)
       // ============================================
       if (findPlan.amount === 0) {
+         // Is plan ki active subscription jis ka time abhi baqi hai: dobara allow nahi
+         const now = new Date();
+         const activeFree = await SubscriptionModel.findOne({
+            userId,
+            planId,
+            status: "active",
+            currentPeriodEnd: { $gt: now },
+         });
+
+         if (activeFree) {
+            return res.status(409).json({
+               success: false,
+               message: "You already have this free plan active.",
+               currentPeriodEnd: activeFree.currentPeriodEnd,
+            });
+         }
+
+         const startDate = new Date();
+         const periodEnd = new Date(startDate);
+         periodEnd.setMonth(periodEnd.getMonth() + 1);
+
          // Directly activate free plan — NO Stripe involved
          const subscription = await SubscriptionModel.create({
             userId,
@@ -140,13 +159,13 @@ export const handleCreateSubscription = async (req, res) => {
             status: "active",
             stripeSubscriptionId: null,
             stripeCustomerId: findUser.customerId || null,
-            startDate: new Date(),
-            currentPeriodEnd: null, // free plan does not expire
+            startDate,
+            endDate: periodEnd,
+            currentPeriodEnd: periodEnd,
             planRestrictions: findPlan.planRestrictions,
          });
 
-         let subscribedPlan;
-         subscribedPlan = {
+         const subscribedPlan = {
             subscription: subscription,
             plan: findPlan,
          };
@@ -194,7 +213,6 @@ export const handleCreateSubscription = async (req, res) => {
       }
 
       // 2️⃣ Create Payment Method (using token instead of card)
-      // let finalPaymentMethodId = paymentMethodId;
       let finalPaymentMethodId = null;
 
       if (paymentMethodId) {
@@ -265,8 +283,7 @@ export const handleCreateSubscription = async (req, res) => {
          currentPeriodEnd: new Date(subscription.items.data[0].current_period_end * 1000),
       });
 
-      let subscribedPlan;
-      subscribedPlan = {
+      const subscribedPlan = {
          subscription: savedSubscription,
          plan: findPlan,
       };

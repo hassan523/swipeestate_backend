@@ -56,7 +56,7 @@ const SubscriptionSchema = new Schema(
       paymentProvider: {
          type: String,
          enum: ["stripe", "apple"],
-         default: "stripe",
+         default: "apple",
       },
       appleProductId: {
          type: String,
