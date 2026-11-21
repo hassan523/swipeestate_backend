@@ -12,32 +12,34 @@ export const handleAddApartment = async (req, res, next) => {
    try {
       const { sellerId } = req.params;
 
-      const { title, type, location, price, area, bedrooms, bathrooms, floor, furnished, balcony, parking, amenities, availability, featured, description } = req.body;
+      const { title, type, location, price, area, bedrooms, bathrooms, floor, furnished, balcony, parking, amenities, availability, featured, description, issue_note } = req.body;
 
-      const image = req?.files?.image;
-      const featuredImages = req?.files?.featuredImages;
+      const featuredImage = req?.files?.featuredImage;
+      const galleryImages = req?.files?.galleryImages;
       const proof_of_ownership = req?.files?.proof_of_ownership;
 
-      if (!image) {
-         return res.status(404).json({ message: "image is required" });
+      if (!featuredImage) {
+         return res.status(404).json({ message: "Featured Image is required" });
       }
+
       if (!proof_of_ownership) {
          return res.status(404).json({ message: "proof of ownership is required" });
       }
 
-      if (!featuredImages) {
+      if (!galleryImages) {
          return res.status(400).json({
-            message: "At least 1 featured image is required",
+            message: "At least 1 Gallery image is required",
          });
       }
 
       // const extractImage = ExtractRelativeFilePath(image);
-      const extractImage = req?.files?.image;
+      const extractImage = req?.files?.featuredImage;
       const uploadResult = extractImage
          ? await cloudinary.uploader.upload(extractImage.tempFilePath, {
               resource_type: "image",
            })
          : "";
+
       const extract_proof_of_ownership = req?.files?.proof_of_ownership;
       const ownershipResult = extract_proof_of_ownership
          ? await cloudinary.uploader.upload(extract_proof_of_ownership.tempFilePath, {
@@ -45,9 +47,16 @@ export const handleAddApartment = async (req, res, next) => {
            })
          : "";
 
-      const extractFeaturedImage = req?.files?.featuredImages;
+      const extract_video = req?.files?.video;
+      const videoResult = extract_video
+         ? await cloudinary.uploader.upload(extract_video.tempFilePath, {
+              resource_type: "video",
+           })
+         : "";
 
-      const featuredImagesArray = Array.isArray(extractFeaturedImage) ? extractFeaturedImage : [extractFeaturedImage];
+      const extractGalleryImage = req?.files?.galleryImages;
+
+      const featuredImagesArray = Array.isArray(extractGalleryImage) ? extractGalleryImage : [extractGalleryImage];
 
       const imageUrls = [];
 
@@ -104,9 +113,11 @@ export const handleAddApartment = async (req, res, next) => {
          availability,
          featured,
          description,
-         image: uploadResult.secure_url,
-         featuredImages: imageUrls,
+         issue_note,
+         featuredImage: uploadResult.secure_url,
+         galleryImages: imageUrls,
          proof_of_ownership: ownershipResult.secure_url,
+         video: videoResult.secure_url,
       });
       await createListing.save();
 
@@ -129,7 +140,7 @@ export const handleUpdateApartment = async (req, res, next) => {
          return res.status(404).json({ message: "Property Not Found" });
       }
 
-      const { title, type, location, price, area, bedrooms, bathrooms, floor, furnished, balcony, parking, amenities, availability, featured, description, status } = req.body;
+      const { title, type, location, price, area, bedrooms, bathrooms, floor, furnished, balcony, parking, amenities, availability, featured, description, status, issue_note } = req.body;
 
       // 🔹 Update normal fields (only if sent)
       if (title) findProperty.title = title;
@@ -147,12 +158,13 @@ export const handleUpdateApartment = async (req, res, next) => {
       if (availability) findProperty.availability = availability;
       if (featured !== undefined) findProperty.featured = featured;
       if (description) findProperty.description = description;
+      if (issue_note) findProperty.issue_note = issue_note;
       if (status) findProperty.status = status;
 
       // 🔹 Update main image (optional)
-      if (req?.files?.image) {
-         const uploadResult = await cloudinary.uploader.upload(req.files.image.tempFilePath, { resource_type: "image" });
-         findProperty.image = uploadResult.secure_url;
+      if (req?.files?.featuredImage) {
+         const uploadResult = await cloudinary.uploader.upload(req.files.featuredImage.tempFilePath, { resource_type: "image" });
+         findProperty.featuredImage = uploadResult.secure_url;
       }
 
       // 🔹 Update proof of ownership (optional)
@@ -162,8 +174,8 @@ export const handleUpdateApartment = async (req, res, next) => {
       }
 
       // 🔹 Update featured images (replace old ones)
-      if (req?.files?.featuredImages) {
-         const extractFeaturedImages = req.files.featuredImages;
+      if (req?.files?.galleryImages) {
+         const extractFeaturedImages = req.files.galleryImages;
          const imageUrls = [];
 
          if (Array.isArray(extractFeaturedImages)) {
@@ -176,7 +188,7 @@ export const handleUpdateApartment = async (req, res, next) => {
             imageUrls.push(upload.secure_url);
          }
 
-         findProperty.featuredImages = imageUrls;
+         findProperty.galleryImages = imageUrls;
       }
 
       await findProperty.save();
