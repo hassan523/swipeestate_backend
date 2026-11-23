@@ -50,7 +50,7 @@ export const handleAddApartment = async (req, res, next) => {
       const extract_video = req?.files?.video;
       const videoResult = extract_video
          ? await cloudinary.uploader.upload(extract_video.tempFilePath, {
-              resource_type: "video",
+              resource_type: "auto",
            })
          : "";
 
